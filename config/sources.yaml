@@ -1,0 +1,6 @@
+news:
+  provider: stub
+markets:
+  provider: stub
+macro:
+  provider: stub

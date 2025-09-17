@@ -1,0 +1,10 @@
+weights:
+  news_sentiment: 0.35
+  freshness: 0.10
+  source_quality: 0.10
+  event_boost: 0.20
+  macro_alignment: 0.15
+  unusual_activity: 0.10
+thresholds:
+  idea_min_score: 0.55
+  strong_min_score: 0.70
