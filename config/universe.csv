@@ -1,0 +1,6 @@
+ticker,name,sector,aliases
+AAPL,Apple Inc,Information Technology,"Apple;iPhone;Mac"
+MSFT,Microsoft Corporation,Information Technology,"Microsoft;Windows;Azure"
+NVDA,NVIDIA Corporation,Information Technology,"Nvidia;GPU"
+XOM,Exxon Mobil Corporation,Energy,"Exxon;ExxonMobil"
+JNJ,Johnson & Johnson,Health Care,"J&J;Johnson and Johnson"
