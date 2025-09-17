@@ -1,1 +1,2 @@
 pandas\nnumpy\nrequests\npyyaml\njinja2
+pytest
