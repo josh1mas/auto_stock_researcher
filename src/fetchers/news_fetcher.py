@@ -103,75 +103,92 @@ def _default_query_from_universe(max_terms: int = 12) -> str:
 
 # ---------- LIVE FETCH (NewsAPI) ----------
 
+# src/fetchers/news_fetcher.py
 def get_headlines_newsapi(date_str: str) -> list[dict]:
-    """Fetch and normalise headlines from NewsAPI for a specific date."""
+    """Fetch and normalise headlines from NewsAPI for a specific date.
+
+    Improvements:
+    - widen the window to [date, date+1) to avoid timezone misses
+    - add searchIn=title,description
+    - if domains allowlist yields zero, retry once with NO domains filter
+    """
     try:
         import requests
-    except ModuleNotFoundError as exc:
+    except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError("The 'requests' package is required for NewsAPI support") from exc
 
+    from datetime import datetime, timedelta
     api_key = os.getenv("NEWSAPI_KEY")
     if not api_key:
         raise RuntimeError("NEWSAPI_KEY not set")
 
+    # widen window: [date, date+1)
+    try:
+        d0 = datetime.strptime(date_str, "%Y-%m-%d")
+        d1 = d0 + timedelta(days=1)
+        to_str = d1.strftime("%Y-%m-%d")
+    except Exception:
+        to_str = date_str  # fallback
+
     url = "https://newsapi.org/v2/everything"
-    params: dict[str, Any] = {
+    base_params: dict[str, Any] = {
         "language": "en",
         "from": date_str,
-        "to": date_str,
+        "to": to_str,
         "sortBy": "publishedAt",
         "pageSize": 50,
-        "q": _default_query_from_universe(),  # Always include a query
-        "apiKey": api_key,                    # Pass API key in query params
+        "searchIn": "title,description",
+        "q": _default_query_from_universe(),
+        "apiKey": api_key,
     }
 
     allowlist = _load_domains_allowlist()
+    attempts: list[dict[str, Any]] = []
     if allowlist:
-        params["domains"] = ",".join(allowlist)
+        p = dict(base_params); p["domains"] = ",".join(allowlist); attempts.append(p)
+    attempts.append(dict(base_params))  # retry without domains
+
+    def _fetch(params: dict[str, Any]) -> list[dict]:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == requests.codes.too_many_requests:
+            raise RuntimeError("NewsAPI rate limit exceeded")
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text[:300]
+            raise RuntimeError(f"NewsAPI error {response.status_code}: {detail}") from exc
+        payload = response.json()
+        items = payload.get("articles", []) if isinstance(payload, dict) else []
+        out = []
+        for art in items:
+            if not isinstance(art, dict): continue
+            src = art.get("source") or {}
+            src_name = src.get("name") if isinstance(src, dict) else ""
+            out.append({
+                "title": art.get("title") or "",
+                "url": art.get("url") or "",
+                "source": src_name or "",
+                "published_at": art.get("publishedAt") or "",
+                "body": art.get("content") or art.get("description") or "",
+            })
+        return out
 
     last_error: Exception | None = None
-    for attempt in range(3):
+    for params in attempts:
         try:
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == requests.codes.too_many_requests:
-                raise RuntimeError("NewsAPI rate limit exceeded")
-
-            try:
-                response.raise_for_status()
-            except Exception as exc:
-                try:
-                    detail = response.json()
-                except Exception:
-                    detail = response.text[:300]
-                raise RuntimeError(f"NewsAPI error {response.status_code}: {detail}") from exc
-
-            payload = response.json()
-            articles = payload.get("articles", []) if isinstance(payload, dict) else []
-            normalised: list[dict] = []
-            for art in articles:
-                if not isinstance(art, dict):
-                    continue
-                source_info = art.get("source") or {}
-                source_name = source_info.get("name") if isinstance(source_info, dict) else ""
-                normalised.append(
-                    {
-                        "title": art.get("title") or "",
-                        "url": art.get("url") or "",
-                        "source": source_name or "",
-                        "published_at": art.get("publishedAt") or "",
-                        "body": art.get("content") or art.get("description") or "",
-                    }
-                )
-            return normalised
+            items = _fetch(params)
+            if items:
+                return items
         except Exception as exc:
             last_error = exc
-            if attempt < 2:
-                time.sleep(1)
-                continue
-            break
+            continue
 
-    assert last_error is not None
-    raise last_error
+    if last_error:
+        raise last_error
+    return []
 
 
 __all__ = ["get_headlines", "get_headlines_newsapi"]
