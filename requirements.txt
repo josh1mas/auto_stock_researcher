@@ -1,2 +1,6 @@
-pandas\nnumpy\nrequests\npyyaml\njinja2
+pandas
+numpy
+requests
+pyyaml
+jinja2
 pytest
