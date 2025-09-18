@@ -1,6 +1,14 @@
 news:
-  provider: stub
+  provider: newsapi
+  # Optional: restrict to higher-signal domains (start broad; you can tighten later)
+  domains_allowlist:
+    - reuters.com
+    - bloomberg.com
+    - ft.com
+    - apnews.com
+    - wsj.com
+
 markets:
-  provider: stub
+  provider: stub   # (will switch to polygon later)
 macro:
-  provider: stub
+  provider: stub   # (will switch to FRED later)

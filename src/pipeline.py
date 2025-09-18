@@ -1,9 +1,10 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 import logging
 import os
 from html import escape
+from urllib.parse import urlparse
 
 from src.fetchers.news_fetcher import get_headlines, get_headlines_newsapi
 from src.scoring import score_day
@@ -33,19 +34,52 @@ def _resolve_date(run_date: str | None) -> datetime:
     return datetime(year=now_local.year, month=now_local.month, day=now_local.day)
 
 
+def _age_str(iso: str) -> str:
+    """Return a human readable age string like '2h ago'."""
+
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+        seconds = max(0, int(delta.total_seconds()))
+        if seconds < 3600:
+            minutes = seconds // 60
+            return f"{minutes}m ago"
+        if seconds < 86400:
+            hours = seconds // 3600
+            return f"{hours}h ago"
+        days = seconds // 86400
+        return f"{days}d ago"
+    except Exception:
+        return ""
+
+
 def _render_idea_block(idea: dict) -> str:
     bullets = (idea.get("why") or [])[:2]
     bullet_html = "".join(f"<li>{escape(str(point))}</li>" for point in bullets) or "<li>No additional context.</li>"
 
     links = idea.get("links") or []
-    link_html = (
-        " ".join(
-            f'<a href="{escape(str(href))}" target="_blank" rel="noopener">Link {idx}</a>'
-            for idx, href in enumerate(links, start=1)
+    rendered_links: list[str] = []
+    for link in links:
+        if isinstance(link, dict):
+            href = link.get("url")
+            published_at = link.get("published_at", "")
+        else:
+            href = link
+            published_at = ""
+        if not href:
+            continue
+        domain = urlparse(str(href)).netloc or "link"
+        age = _age_str(str(published_at))
+        label = f"{domain} ({age})" if age else domain
+        rendered_links.append(
+            f'<a href="{escape(str(href))}" target="_blank" rel="noopener">{escape(label)}</a>'
         )
-        if links
-        else "No links available."
-    )
+
+    link_html = " ".join(rendered_links) if rendered_links else "No links available."
 
     ticker = escape(str(idea.get("ticker", "UNK")))
     score = float(idea.get("score", 0.0))
@@ -81,6 +115,7 @@ def run_daily_pipeline(run_date: str | None = None) -> str:
 
     # 3) Score ideas (robust to empty)
     ideas = score_day(tagged_articles or [])
+    ideas = sorted(ideas, key=lambda x: x["score"], reverse=True)[:10]
 
     # 4) Render sections
     idea_section = (
