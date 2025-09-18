@@ -1,9 +1,14 @@
 from pathlib import Path
 from datetime import datetime
+import logging
 
-from src.fetchers.news_fetcher import get_headlines
+from src.fetchers.news_fetcher import get_headlines, get_headlines_newsapi
 from src.scoring import score_day
 from src.tagger import link_articles_to_tickers
+
+
+LOGGER = logging.getLogger(__name__)
+USE_STUBS: bool = True
 
 
 def _render_idea_block(idea: dict) -> str:
@@ -31,11 +36,22 @@ def _render_idea_block(idea: dict) -> str:
 
 
 def run_daily_pipeline(run_date: str | None = None) -> str:
-    """Fetch stubbed news, tag tickers, score ideas, and render an HTML report."""
+    """Generate the daily report using either stubbed or live data sources."""
     date = datetime.strptime(run_date, "%Y-%m-%d") if run_date else datetime.utcnow()
     date_str = date.strftime("%Y-%m-%d")
 
-    articles = get_headlines(date_str)
+    data_source = "Stub"
+    if USE_STUBS:
+        articles = get_headlines(date_str)
+    else:
+        try:
+            articles = get_headlines_newsapi(date_str)
+            data_source = "Live"
+        except Exception as exc:  # pragma: no cover - runtime protection
+            LOGGER.warning("Falling back to stub headlines: %s", exc)
+            articles = get_headlines(date_str)
+            data_source = "Stub"
+
     tagged_articles = link_articles_to_tickers(articles)
     ideas = score_day(tagged_articles)
 
@@ -62,6 +78,7 @@ body{{font-family:-apple-system,Segoe UI,Roboto,Arial;margin:24px;line-height:1.
 .idea h3{{margin-top:0}}
 </style>
 </head><body><h1>Daily Stock Ideas — {date_str}</h1>
+<p><em>Data source: {data_source}</em></p>
 <section><h2>Top Ideas</h2>{idea_section}</section>
 <section><h2>Articles Reviewed</h2><ul>{article_list_items}</ul></section>
 </body></html>"""
